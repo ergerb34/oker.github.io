@@ -5,10 +5,11 @@
     |__/|__/_/_//_/\_,_/\____/___/
     
     WindUI - Stable Build (API Compatible)
-    Clean architecture - No folder/config dependencies
+    Fixed version with proper error handling and window controls
+    No folder/config dependencies
     
     Original Author: Footagesus
-    Restructured for stability while maintaining original API compatibility
+    Fixed for stability
 ]]
 
 local cloneref = (cloneref or clonereference or function(instance)
@@ -109,16 +110,6 @@ local WindUI = {
 
     Scheme = nil,
 
-    Shapes = {
-        Square = "rbxassetid://82909646051652",
-        Squircle = "rbxassetid://80999662900595",
-        SquircleOutline = "rbxassetid://117788349049947",
-        ["Squircle-Outline"] = "rbxassetid://117817408534198",
-        ["Shadow-sm"] = "rbxassetid://84825982946844",
-        ["Squircle-TL-TR"] = "rbxassetid://73569156276236",
-        ["Squircle-BL-BR"] = "rbxassetid://93853842912264",
-    },
-
     DefaultProperties = {
         ScreenGui = { ResetOnSpawn = false, ZIndexBehavior = Enum.ZIndexBehavior.Sibling },
         Frame = { BorderSizePixel = 0, BackgroundColor3 = Color3.new(1, 1, 1) },
@@ -209,71 +200,25 @@ function WindUI.New(className, properties, children)
 end
 
 function WindUI.Tween(object, duration, properties, easingStyle, easingDirection)
+    if not object then
+        return {Play = function() end, Cancel = function() end}
+    end
+    if typeof(object) ~= "Instance" then
+        return {Play = function() end, Cancel = function() end}
+    end
+    local ok = pcall(function() return object.Parent end)
+    if not ok then
+        return {Play = function() end, Cancel = function() end}
+    end
     easingStyle = easingStyle or Enum.EasingStyle.Quad
     easingDirection = easingDirection or Enum.EasingDirection.Out
-    return TweenService:Create(object, TweenInfo.new(duration, easingStyle, easingDirection), properties)
-end
-
-function WindUI.NewRoundFrame(radius, shapeType, properties, children, isButton, returnController)
-    local function getImageForType(sType)
-        return WindUI.Shapes[sType] or WindUI.Shapes.Squircle
+    local success, tween = pcall(function()
+        return TweenService:Create(object, TweenInfo.new(duration, easingStyle, easingDirection), properties)
+    end)
+    if success and tween then
+        return tween
     end
-
-    local function getSliceCenterForType(sType)
-        return sType ~= "Shadow-sm" and Rect.new(256, 256, 256, 256) or Rect.new(512, 512, 512, 512)
-    end
-
-    local frame = WindUI.New(isButton and "ImageButton" or "ImageLabel", {
-        Image = getImageForType(shapeType),
-        ScaleType = Enum.ScaleType.Slice,
-        SliceCenter = getSliceCenterForType(shapeType),
-        SliceScale = 1,
-        BackgroundTransparency = 1,
-    }, children)
-
-    for prop, value in pairs(properties or {}) do
-        if prop ~= "ThemeTag" then
-            pcall(function() frame[prop] = value end)
-        end
-    end
-
-    local function UpdateSliceScale(r)
-        local scale = shapeType ~= "Shadow-sm" and (r / 256) or (r / 512)
-        frame.SliceScale = math.max(scale, 0.0001)
-    end
-
-    UpdateSliceScale(radius)
-
-    local controller = {}
-    function controller:SetRadius(r) 
-        radius = r
-        UpdateSliceScale(r) 
-    end
-    function controller:GetRadius() 
-        return radius 
-    end
-    function controller:SetType(newType)
-        shapeType = newType
-        frame.Image = getImageForType(newType)
-        frame.SliceCenter = getSliceCenterForType(newType)
-        UpdateSliceScale(radius)
-    end
-    function controller:GetType()
-        return shapeType
-    end
-    function controller:UpdateShape(newRadius, newType)
-        if newType then
-            shapeType = newType
-            frame.Image = getImageForType(newType)
-            frame.SliceCenter = getSliceCenterForType(newType)
-        end
-        if newRadius then
-            radius = newRadius
-        end
-        UpdateSliceScale(radius)
-    end
-
-    return frame, returnController and controller or nil
+    return {Play = function() end, Cancel = function() end}
 end
 
 function WindUI.Drag(target, dragElements, onDragCallback)
@@ -295,32 +240,34 @@ function WindUI.Drag(target, dragElements, onDragCallback)
     end
 
     for _, element in pairs(dragElements) do
-        element.InputBegan:Connect(function(input)
-            if (input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch) and dragController.CanDraggable then
-                if currentDragElement == nil then
-                    currentDragElement = element
-                    isDragging = true
-                    dragStart = input.Position
-                    startPos = target.Position
-                    if onDragCallback then onDragCallback(true, currentDragElement) end
-                    input.Changed:Connect(function()
-                        if input.UserInputState == Enum.UserInputState.End then
-                            isDragging = false
-                            currentDragElement = nil
-                            if onDragCallback then onDragCallback(false, nil) end
-                        end
-                    end)
+        if element and typeof(element) == "Instance" then
+            element.InputBegan:Connect(function(input)
+                if (input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch) and dragController.CanDraggable then
+                    if currentDragElement == nil then
+                        currentDragElement = element
+                        isDragging = true
+                        dragStart = input.Position
+                        startPos = target.Position
+                        if onDragCallback then onDragCallback(true, currentDragElement) end
+                        input.Changed:Connect(function()
+                            if input.UserInputState == Enum.UserInputState.End then
+                                isDragging = false
+                                currentDragElement = nil
+                                if onDragCallback then onDragCallback(false, nil) end
+                            end
+                        end)
+                    end
                 end
-            end
-        end)
+            end)
 
-        element.InputChanged:Connect(function(input)
-            if isDragging and currentDragElement == element then
-                if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
-                    update(input)
+            element.InputChanged:Connect(function(input)
+                if isDragging and currentDragElement == element then
+                    if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+                        update(input)
+                    end
                 end
-            end
-        end)
+            end)
+        end
     end
 
     UserInputService.InputChanged:Connect(function(input)
@@ -373,17 +320,17 @@ function WindUI:Notify(options)
     
     local notifyHeight = 44 + contentHeight
     
-    local notifyFrame = WindUI.NewRoundFrame(WindUI.CornerRadius, "Squircle", {
+    local notifyFrame = WindUI.New("Frame", {
         Size = UDim2.new(1, 0, 0, notifyHeight),
         Position = UDim2.new(1, 0, 0, 0),
-        ImageColor3 = WindUI.Scheme.Dialog,
+        BackgroundColor3 = WindUI.Scheme.Dialog,
         Parent = WindUI.NotificationHolder,
         ClipsDescendants = true,
     }, {
-        WindUI.NewRoundFrame(WindUI.CornerRadius, "SquircleOutline", {
-            Size = UDim2.new(1, 0, 1, 0),
-            ImageColor3 = WindUI.Scheme.Outline,
-            ImageTransparency = 0.9,
+        WindUI.New("UICorner", { CornerRadius = UDim.new(0, WindUI.CornerRadius) }),
+        WindUI.New("UIStroke", {
+            Color = WindUI.Scheme.Outline,
+            Transparency = 0.9,
         }),
     })
     
@@ -482,7 +429,6 @@ function WindUI:CreateWindow(options)
         UICorner = options.CornerRadius or WindUI.CornerRadius,
         Icon = options.Icon or nil,
         Debug = options.Debug or false,
-        Folder = options.Folder or nil,
         Transparent = options.Transparent or false,
         HasOutline = options.HasOutline ~= false,
         Theme = themeName,
@@ -520,68 +466,75 @@ function WindUI:CreateWindow(options)
     })
     WindUI.NotificationHolder = notificationHolder
 
-    local shadow = WindUI.NewRoundFrame(windowData.UICorner + 8, "Shadow-sm", {
-        Size = UDim2.new(1, 24, 1, 24),
-        Position = UDim2.new(0.5, 0, 0.5, 0),
-        AnchorPoint = Vector2.new(0.5, 0.5),
-        ImageColor3 = Color3.new(0, 0, 0),
-        ImageTransparency = 0.4,
-        ZIndex = 0,
-    })
-
-    local outlineFrame
-    if windowData.HasOutline then
-        outlineFrame = WindUI.NewRoundFrame(windowData.UICorner, "SquircleOutline", {
-            Size = UDim2.new(1, 0, 1, 0),
-            ImageColor3 = WindUI.Scheme.Outline,
-            ImageTransparency = 0.92,
-            ZIndex = 10,
-        })
-    end
-
-    local mainFrame = WindUI.NewRoundFrame(windowData.UICorner, "Squircle", {
+    local mainFrame = WindUI.New("Frame", {
         Name = "MainWindow",
         Size = windowData.Size,
         Position = windowData.Center and UDim2.new(0.5, 0, 0.5, 0) or windowData.Position,
         AnchorPoint = windowData.Center and Vector2.new(0.5, 0.5) or Vector2.new(0, 0),
-        ImageColor3 = WindUI.Scheme.Background,
-        ImageTransparency = windowData.Transparent and 0.1 or 0,
+        BackgroundColor3 = WindUI.Scheme.Background,
+        BackgroundTransparency = windowData.Transparent and 0.1 or 0,
         Parent = screenGui,
         ClipsDescendants = true,
     }, {
-        shadow,
-        outlineFrame,
+        WindUI.New("UICorner", { CornerRadius = UDim.new(0, windowData.UICorner) }),
+        WindUI.New("UIStroke", {
+            Color = WindUI.Scheme.Outline,
+            Transparency = windowData.HasOutline and 0.92 or 1,
+        }),
     })
 
-    local topbarContent = {
+    local topbar = WindUI.New("Frame", {
+        Name = "Topbar",
+        Size = UDim2.new(1, 0, 0, 48),
+        BackgroundColor3 = WindUI.Scheme.Accent,
+        BackgroundTransparency = windowData.Transparent and 0.2 or 0,
+        Parent = mainFrame,
+        ZIndex = 2,
+    }, {
+        WindUI.New("UICorner", { CornerRadius = UDim.new(0, windowData.UICorner) }),
+    })
+
+    local topbarMask = WindUI.New("Frame", {
+        Size = UDim2.new(1, 0, 0.5, 0),
+        Position = UDim2.new(0, 0, 0.5, 0),
+        BackgroundColor3 = WindUI.Scheme.Accent,
+        BackgroundTransparency = windowData.Transparent and 0.2 or 0,
+        Parent = topbar,
+        ZIndex = 1,
+    })
+
+    local topbarContent = WindUI.New("Frame", {
+        Size = UDim2.new(1, -100, 1, 0),
+        BackgroundTransparency = 1,
+        Parent = topbar,
+        ZIndex = 3,
+    }, {
         WindUI.New("UIPadding", {
             PaddingLeft = UDim.new(0, 16),
-            PaddingRight = UDim.new(0, 16),
         }),
         WindUI.New("UIListLayout", {
             FillDirection = Enum.FillDirection.Horizontal,
             VerticalAlignment = Enum.VerticalAlignment.Center,
             Padding = UDim.new(0, 12),
         }),
-    }
+    })
 
-    local iconImage
     if windowData.Icon and WindUI.Icons then
         local iconData = WindUI.Icon(windowData.Icon)
         if iconData then
-            iconImage = WindUI.New("ImageLabel", {
+            WindUI.New("ImageLabel", {
                 Size = UDim2.new(0, 24, 0, 24),
                 BackgroundTransparency = 1,
                 Image = iconData[1],
                 ImageRectSize = iconData[2] and iconData[2].ImageRectSize or Vector2.new(0, 0),
                 ImageRectOffset = iconData[2] and iconData[2].ImageRectPosition or Vector2.new(0, 0),
                 ImageColor3 = WindUI.Scheme.Text,
+                Parent = topbarContent,
             })
-            table.insert(topbarContent, iconImage)
         end
     end
 
-    table.insert(topbarContent, WindUI.New("TextLabel", {
+    WindUI.New("TextLabel", {
         Name = "Title",
         Size = UDim2.new(0, 0, 1, 0),
         AutomaticSize = Enum.AutomaticSize.X,
@@ -591,10 +544,11 @@ function WindUI:CreateWindow(options)
         TextXAlignment = Enum.TextXAlignment.Left,
         FontFace = Font.new(WindUI.Font, Enum.FontWeight.SemiBold),
         TextSize = 18,
-    }))
+        Parent = topbarContent,
+    })
 
     if windowData.Author and windowData.Author ~= "" then
-        table.insert(topbarContent, WindUI.New("TextLabel", {
+        WindUI.New("TextLabel", {
             Name = "Author",
             Size = UDim2.new(0, 0, 1, 0),
             AutomaticSize = Enum.AutomaticSize.X,
@@ -605,17 +559,121 @@ function WindUI:CreateWindow(options)
             TextXAlignment = Enum.TextXAlignment.Left,
             FontFace = Font.new(WindUI.Font, Enum.FontWeight.Regular),
             TextSize = 14,
-        }))
+            Parent = topbarContent,
+        })
     end
 
-    local topbar = WindUI.NewRoundFrame(windowData.UICorner, "Squircle-TL-TR", {
-        Name = "Topbar",
-        Size = UDim2.new(1, 0, 0, 48),
-        ImageColor3 = WindUI.Scheme.Accent,
-        ImageTransparency = windowData.Transparent and 0.2 or 0,
-        Parent = mainFrame,
-        ZIndex = 2,
-    }, topbarContent)
+    local controlsFrame = WindUI.New("Frame", {
+        Size = UDim2.new(0, 80, 1, 0),
+        Position = UDim2.new(1, 0, 0, 0),
+        AnchorPoint = Vector2.new(1, 0),
+        BackgroundTransparency = 1,
+        Parent = topbar,
+        ZIndex = 3,
+    }, {
+        WindUI.New("UIListLayout", {
+            FillDirection = Enum.FillDirection.Horizontal,
+            VerticalAlignment = Enum.VerticalAlignment.Center,
+            HorizontalAlignment = Enum.HorizontalAlignment.Right,
+            Padding = UDim.new(0, 4),
+        }),
+        WindUI.New("UIPadding", {
+            PaddingRight = UDim.new(0, 12),
+        }),
+    })
+
+    local function createControlButton(iconName, callback)
+        local btn = WindUI.New("TextButton", {
+            Size = UDim2.new(0, 28, 0, 28),
+            BackgroundColor3 = WindUI.Scheme.Button,
+            BackgroundTransparency = 0.5,
+            Parent = controlsFrame,
+        }, {
+            WindUI.New("UICorner", { CornerRadius = UDim.new(0, 6) }),
+        })
+
+        if WindUI.Icons then
+            local iconData = WindUI.Icon(iconName)
+            if iconData then
+                WindUI.New("ImageLabel", {
+                    Size = UDim2.new(0, 16, 0, 16),
+                    Position = UDim2.new(0.5, 0, 0.5, 0),
+                    AnchorPoint = Vector2.new(0.5, 0.5),
+                    BackgroundTransparency = 1,
+                    Image = iconData[1],
+                    ImageRectSize = iconData[2] and iconData[2].ImageRectSize or Vector2.new(0, 0),
+                    ImageRectOffset = iconData[2] and iconData[2].ImageRectPosition or Vector2.new(0, 0),
+                    ImageColor3 = WindUI.Scheme.Text,
+                    Parent = btn,
+                })
+            end
+        else
+            WindUI.New("TextLabel", {
+                Size = UDim2.new(1, 0, 1, 0),
+                BackgroundTransparency = 1,
+                Text = iconName == "minus" and "-" or "X",
+                TextColor3 = WindUI.Scheme.Text,
+                FontFace = Font.new(WindUI.Font, Enum.FontWeight.Bold),
+                TextSize = 16,
+                Parent = btn,
+            })
+        end
+
+        btn.MouseEnter:Connect(function()
+            WindUI.Tween(btn, 0.1, { BackgroundTransparency = 0.3 }):Play()
+        end)
+
+        btn.MouseLeave:Connect(function()
+            WindUI.Tween(btn, 0.1, { BackgroundTransparency = 0.5 }):Play()
+        end)
+
+        btn.MouseButton1Click:Connect(callback)
+
+        return btn
+    end
+
+    local function hideWindow()
+        mainFrame.Visible = false
+        WindUI.Toggled = false
+        if not WindUI.OpenButton then
+            local openBtn = WindUI.New("TextButton", {
+                Name = "OpenButton",
+                Size = UDim2.new(0, 100, 0, 32),
+                Position = UDim2.new(0, 20, 0.5, 0),
+                AnchorPoint = Vector2.new(0, 0.5),
+                BackgroundColor3 = WindUI.Scheme.Dialog,
+                Text = "",
+                Parent = screenGui,
+                ZIndex = 50,
+            }, {
+                WindUI.New("UICorner", { CornerRadius = UDim.new(0, 8) }),
+                WindUI.New("UIStroke", {
+                    Color = WindUI.Scheme.Slider,
+                    Thickness = 2,
+                }),
+                WindUI.New("TextLabel", {
+                    Size = UDim2.new(1, 0, 1, 0),
+                    BackgroundTransparency = 1,
+                    Text = "Open",
+                    TextColor3 = WindUI.Scheme.Text,
+                    FontFace = Font.new(WindUI.Font, Enum.FontWeight.Medium),
+                    TextSize = 14,
+                }),
+            })
+            openBtn.MouseButton1Click:Connect(function()
+                mainFrame.Visible = true
+                openBtn.Visible = false
+                WindUI.Toggled = true
+            end)
+            WindUI.Drag(openBtn, { openBtn })
+            WindUI.OpenButton = openBtn
+        else
+            WindUI.OpenButton.Visible = true
+        end
+    end
+
+    local closeBtn = createControlButton("x", hideWindow)
+    local minimizeBtn = createControlButton("minus", hideWindow)
 
     local separator = WindUI.New("Frame", {
         Size = UDim2.new(1, 0, 0, 1),
@@ -623,6 +681,7 @@ function WindUI:CreateWindow(options)
         BackgroundColor3 = WindUI.Scheme.Outline,
         BackgroundTransparency = 0.92,
         Parent = topbar,
+        ZIndex = 4,
     })
 
     local contentFrame = WindUI.New("Frame", {
@@ -634,13 +693,24 @@ function WindUI:CreateWindow(options)
         ZIndex = 1,
     })
 
-    local tabContainer = WindUI.NewRoundFrame(windowData.UICorner, "Squircle-BL-BR", {
+    local tabContainer = WindUI.New("Frame", {
         Name = "TabContainer",
         Size = UDim2.new(0, 160, 1, 0),
-        ImageColor3 = WindUI.Scheme.Accent,
-        ImageTransparency = windowData.Transparent and 0.3 or 0,
+        BackgroundColor3 = WindUI.Scheme.Accent,
+        BackgroundTransparency = windowData.Transparent and 0.3 or 0,
         ClipsDescendants = true,
         Parent = contentFrame,
+    }, {
+        WindUI.New("UICorner", { CornerRadius = UDim.new(0, windowData.UICorner) }),
+    })
+
+    local tabContainerMask = WindUI.New("Frame", {
+        Size = UDim2.new(0.5, 0, 1, 0),
+        Position = UDim2.new(0.5, 0, 0, 0),
+        BackgroundColor3 = WindUI.Scheme.Accent,
+        BackgroundTransparency = windowData.Transparent and 0.3 or 0,
+        Parent = tabContainer,
+        ZIndex = 0,
     })
 
     local tabSeparator = WindUI.New("Frame", {
@@ -649,6 +719,7 @@ function WindUI:CreateWindow(options)
         BackgroundColor3 = WindUI.Scheme.Outline,
         BackgroundTransparency = 0.92,
         Parent = tabContainer,
+        ZIndex = 2,
     })
 
     local tabScroll = WindUI.New("ScrollingFrame", {
@@ -659,6 +730,7 @@ function WindUI:CreateWindow(options)
         CanvasSize = UDim2.new(0, 0, 0, 0),
         AutomaticCanvasSize = Enum.AutomaticSize.Y,
         Parent = tabContainer,
+        ZIndex = 1,
     }, {
         WindUI.New("UIListLayout", { Padding = UDim.new(0, 4) }),
         WindUI.New("UIPadding", {
@@ -715,9 +787,6 @@ function WindUI:CreateWindow(options)
             WindUI.New("UIStroke", {
                 Thickness = btnStroke,
                 Color = typeof(btnColor) == "ColorSequence" and btnColor.Keypoints[1].Value or btnColor,
-            }),
-            WindUI.New("UIGradient", {
-                Color = typeof(btnColor) == "ColorSequence" and btnColor or ColorSequence.new(btnColor),
             }),
         })
         
@@ -799,39 +868,47 @@ function WindUI:CreateWindow(options)
             end
         end
 
-        local tabButton = WindUI.NewRoundFrame(8, "Squircle", {
+        local tabButton = WindUI.New("TextButton", {
             Name = tabData.Name,
             Size = UDim2.new(1, 0, 0, 36),
-            ImageColor3 = WindUI.Scheme.Button,
-            ImageTransparency = 1,
+            BackgroundColor3 = WindUI.Scheme.Button,
+            BackgroundTransparency = 1,
             Parent = tabScroll,
         }, {
-            WindUI.New("Frame", {
-                Size = UDim2.new(1, 0, 1, 0),
-                BackgroundTransparency = 1,
-            }, {
-                WindUI.New("UIListLayout", {
-                    FillDirection = Enum.FillDirection.Horizontal,
-                    VerticalAlignment = Enum.VerticalAlignment.Center,
-                    Padding = UDim.new(0, 10),
-                }),
-                WindUI.New("UIPadding", {
-                    PaddingLeft = UDim.new(0, 12),
-                }),
-                iconImage,
-                WindUI.New("TextLabel", {
-                    Name = "Label",
-                    Size = UDim2.new(1, iconImage and -28 or 0, 1, 0),
-                    BackgroundTransparency = 1,
-                    Text = tabData.Name,
-                    TextColor3 = WindUI.Scheme.Text,
-                    TextTransparency = 0.3,
-                    TextXAlignment = Enum.TextXAlignment.Left,
-                    FontFace = Font.new(WindUI.Font, Enum.FontWeight.Medium),
-                    TextSize = 14,
-                }),
+            WindUI.New("UICorner", { CornerRadius = UDim.new(0, 8) }),
+        })
+
+        local tabButtonContent = WindUI.New("Frame", {
+            Size = UDim2.new(1, 0, 1, 0),
+            BackgroundTransparency = 1,
+            Parent = tabButton,
+        }, {
+            WindUI.New("UIListLayout", {
+                FillDirection = Enum.FillDirection.Horizontal,
+                VerticalAlignment = Enum.VerticalAlignment.Center,
+                Padding = UDim.new(0, 10),
             }),
-        }, true)
+            WindUI.New("UIPadding", {
+                PaddingLeft = UDim.new(0, 12),
+            }),
+        })
+
+        if iconImage then
+            iconImage.Parent = tabButtonContent
+        end
+
+        local tabLabel = WindUI.New("TextLabel", {
+            Name = "Label",
+            Size = UDim2.new(1, iconImage and -28 or 0, 1, 0),
+            BackgroundTransparency = 1,
+            Text = tabData.Name,
+            TextColor3 = WindUI.Scheme.Text,
+            TextTransparency = 0.3,
+            TextXAlignment = Enum.TextXAlignment.Left,
+            FontFace = Font.new(WindUI.Font, Enum.FontWeight.Medium),
+            TextSize = 14,
+            Parent = tabButtonContent,
+        })
 
         local tabPage = WindUI.New("ScrollingFrame", {
             Name = tabData.Name .. "Page",
@@ -857,29 +934,36 @@ function WindUI:CreateWindow(options)
         tabData.Button = tabButton
         tabData.Page = tabPage
         tabData.IconImage = iconImage
+        tabData.Label = tabLabel
 
         local function activateTab()
             for _, tab in pairs(windowData.Tabs) do
-                if tab.Page then tab.Page.Visible = false end
-                if tab.Button then
-                    WindUI.Tween(tab.Button, 0.15, { ImageTransparency = 1 }):Play()
-                end
-                if tab.IconImage then
-                    WindUI.Tween(tab.IconImage, 0.15, { ImageColor3 = WindUI.Scheme.Icon }):Play()
-                end
-                local label = tab.Button and tab.Button:FindFirstChild("Frame") and tab.Button.Frame:FindFirstChild("Label")
-                if label then
-                    WindUI.Tween(label, 0.15, { TextTransparency = 0.3 }):Play()
+                if tab and typeof(tab) == "table" then
+                    if tab.Page and typeof(tab.Page) == "Instance" then
+                        tab.Page.Visible = false
+                    end
+                    if tab.Button and typeof(tab.Button) == "Instance" then
+                        WindUI.Tween(tab.Button, 0.15, { BackgroundTransparency = 1 }):Play()
+                    end
+                    if tab.IconImage and typeof(tab.IconImage) == "Instance" then
+                        WindUI.Tween(tab.IconImage, 0.15, { ImageColor3 = WindUI.Scheme.Icon }):Play()
+                    end
+                    if tab.Label and typeof(tab.Label) == "Instance" then
+                        WindUI.Tween(tab.Label, 0.15, { TextTransparency = 0.3 }):Play()
+                    end
                 end
             end
-            tabPage.Visible = true
-            WindUI.Tween(tabButton, 0.15, { ImageTransparency = 0.85 }):Play()
-            if iconImage then
+            if tabPage and typeof(tabPage) == "Instance" then
+                tabPage.Visible = true
+            end
+            if tabButton and typeof(tabButton) == "Instance" then
+                WindUI.Tween(tabButton, 0.15, { BackgroundTransparency = 0.85 }):Play()
+            end
+            if iconImage and typeof(iconImage) == "Instance" then
                 WindUI.Tween(iconImage, 0.15, { ImageColor3 = WindUI.Scheme.Text }):Play()
             end
-            local label = tabButton:FindFirstChild("Frame") and tabButton.Frame:FindFirstChild("Label")
-            if label then
-                WindUI.Tween(label, 0.15, { TextTransparency = 0 }):Play()
+            if tabLabel and typeof(tabLabel) == "Instance" then
+                WindUI.Tween(tabLabel, 0.15, { TextTransparency = 0 }):Play()
             end
             WindUI.ActiveTab = tabData
         end
@@ -888,13 +972,13 @@ function WindUI:CreateWindow(options)
 
         tabButton.MouseEnter:Connect(function()
             if WindUI.ActiveTab ~= tabData then
-                WindUI.Tween(tabButton, 0.1, { ImageTransparency = 0.92 }):Play()
+                WindUI.Tween(tabButton, 0.1, { BackgroundTransparency = 0.92 }):Play()
             end
         end)
 
         tabButton.MouseLeave:Connect(function()
             if WindUI.ActiveTab ~= tabData then
-                WindUI.Tween(tabButton, 0.1, { ImageTransparency = 1 }):Play()
+                WindUI.Tween(tabButton, 0.1, { BackgroundTransparency = 1 }):Play()
             end
         end)
 
@@ -915,7 +999,7 @@ function WindUI:CreateWindow(options)
                 Parent = tabPage,
             })
 
-            local toggleLabel = WindUI.New("TextLabel", {
+            WindUI.New("TextLabel", {
                 Size = UDim2.new(1, -50, 1, 0),
                 BackgroundTransparency = 1,
                 Text = toggleData.Text,
@@ -926,20 +1010,24 @@ function WindUI:CreateWindow(options)
                 Parent = toggleFrame,
             })
 
-            local toggleBack = WindUI.NewRoundFrame(11, "Squircle", {
+            local toggleBack = WindUI.New("TextButton", {
                 Size = UDim2.new(0, 44, 0, 24),
                 Position = UDim2.new(1, 0, 0.5, 0),
                 AnchorPoint = Vector2.new(1, 0.5),
-                ImageColor3 = toggleData.Value and WindUI.Scheme.Toggle or WindUI.Scheme.Button,
+                BackgroundColor3 = toggleData.Value and WindUI.Scheme.Toggle or WindUI.Scheme.Button,
                 Parent = toggleFrame,
-            }, nil, true)
+            }, {
+                WindUI.New("UICorner", { CornerRadius = UDim.new(1, 0) }),
+            })
 
-            local toggleCircle = WindUI.NewRoundFrame(99, "Squircle", {
+            local toggleCircle = WindUI.New("Frame", {
                 Size = UDim2.new(0, 18, 0, 18),
                 Position = toggleData.Value and UDim2.new(1, -3, 0.5, 0) or UDim2.new(0, 3, 0.5, 0),
                 AnchorPoint = Vector2.new(toggleData.Value and 1 or 0, 0.5),
-                ImageColor3 = WindUI.Scheme.White,
+                BackgroundColor3 = WindUI.Scheme.White,
                 Parent = toggleBack,
+            }, {
+                WindUI.New("UICorner", { CornerRadius = UDim.new(1, 0) }),
             })
 
             toggleData.Frame = toggleFrame
@@ -948,7 +1036,7 @@ function WindUI:CreateWindow(options)
 
             function toggleData:SetValue(value, skipCallback)
                 toggleData.Value = value
-                WindUI.Tween(toggleBack, 0.2, { ImageColor3 = value and WindUI.Scheme.Toggle or WindUI.Scheme.Button }):Play()
+                WindUI.Tween(toggleBack, 0.2, { BackgroundColor3 = value and WindUI.Scheme.Toggle or WindUI.Scheme.Button }):Play()
                 WindUI.Tween(toggleCircle, 0.2, { 
                     Position = value and UDim2.new(1, -3, 0.5, 0) or UDim2.new(0, 3, 0.5, 0),
                     AnchorPoint = Vector2.new(value and 1 or 0, 0.5)
@@ -986,18 +1074,18 @@ function WindUI:CreateWindow(options)
 
             local buttonHeight = buttonData.Desc and 50 or 36
 
-            local buttonFrame = WindUI.NewRoundFrame(8, "Squircle", {
+            local buttonFrame = WindUI.New("TextButton", {
                 Name = buttonData.Text,
                 Size = UDim2.new(1, 0, 0, buttonHeight),
-                ImageColor3 = WindUI.Scheme.Button,
+                BackgroundColor3 = WindUI.Scheme.Button,
                 Parent = tabPage,
             }, {
-                WindUI.NewRoundFrame(8, "SquircleOutline", {
-                    Size = UDim2.new(1, 0, 1, 0),
-                    ImageColor3 = WindUI.Scheme.Outline,
-                    ImageTransparency = 0.9,
+                WindUI.New("UICorner", { CornerRadius = UDim.new(0, 8) }),
+                WindUI.New("UIStroke", {
+                    Color = WindUI.Scheme.Outline,
+                    Transparency = 0.9,
                 }),
-            }, true)
+            })
 
             local textContent = WindUI.New("Frame", {
                 Size = UDim2.new(1, 0, 1, 0),
@@ -1037,18 +1125,18 @@ function WindUI:CreateWindow(options)
             buttonData.Frame = buttonFrame
 
             buttonFrame.MouseButton1Click:Connect(function()
-                WindUI.Tween(buttonFrame, 0.1, { ImageColor3 = WindUI.Scheme.Toggle }):Play()
+                WindUI.Tween(buttonFrame, 0.1, { BackgroundColor3 = WindUI.Scheme.Toggle }):Play()
                 task.wait(0.1)
-                WindUI.Tween(buttonFrame, 0.1, { ImageColor3 = WindUI.Scheme.Button }):Play()
+                WindUI.Tween(buttonFrame, 0.1, { BackgroundColor3 = WindUI.Scheme.Button }):Play()
                 WindUI.SafeCallback(buttonData.Callback)
             end)
 
             buttonFrame.MouseEnter:Connect(function()
-                WindUI.Tween(buttonFrame, 0.1, { ImageTransparency = 0.1 }):Play()
+                WindUI.Tween(buttonFrame, 0.1, { BackgroundTransparency = 0.1 }):Play()
             end)
 
             buttonFrame.MouseLeave:Connect(function()
-                WindUI.Tween(buttonFrame, 0.1, { ImageTransparency = 0 }):Play()
+                WindUI.Tween(buttonFrame, 0.1, { BackgroundTransparency = 0 }):Play()
             end)
 
             table.insert(tabData.Elements, buttonData)
@@ -1077,7 +1165,7 @@ function WindUI:CreateWindow(options)
                 Parent = tabPage,
             })
 
-            local sliderLabel = WindUI.New("TextLabel", {
+            WindUI.New("TextLabel", {
                 Size = UDim2.new(0.7, 0, 0, 18),
                 BackgroundTransparency = 1,
                 Text = sliderData.Text,
@@ -1103,27 +1191,33 @@ function WindUI:CreateWindow(options)
                 Parent = sliderFrame,
             })
 
-            local sliderBack = WindUI.NewRoundFrame(6, "Squircle", {
+            local sliderBack = WindUI.New("TextButton", {
                 Size = UDim2.new(1, 0, 0, 12),
                 Position = UDim2.new(0, 0, 0, 26),
-                ImageColor3 = WindUI.Scheme.Button,
-                ImageTransparency = 0.3,
+                BackgroundColor3 = WindUI.Scheme.Button,
+                BackgroundTransparency = 0.3,
                 Parent = sliderFrame,
+            }, {
+                WindUI.New("UICorner", { CornerRadius = UDim.new(0, 6) }),
             })
 
-            local sliderFill = WindUI.NewRoundFrame(6, "Squircle", {
+            local sliderFill = WindUI.New("Frame", {
                 Size = UDim2.new(math.clamp(percent, 0, 1), 0, 1, 0),
-                ImageColor3 = WindUI.Scheme.Slider,
+                BackgroundColor3 = WindUI.Scheme.Slider,
                 Parent = sliderBack,
+            }, {
+                WindUI.New("UICorner", { CornerRadius = UDim.new(0, 6) }),
             })
 
-            local sliderThumb = WindUI.NewRoundFrame(99, "Squircle", {
+            local sliderThumb = WindUI.New("TextButton", {
                 Size = UDim2.new(0, 18, 0, 18),
                 Position = UDim2.new(math.clamp(percent, 0, 1), 0, 0.5, 0),
                 AnchorPoint = Vector2.new(0.5, 0.5),
-                ImageColor3 = WindUI.Scheme.White,
+                BackgroundColor3 = WindUI.Scheme.White,
                 Parent = sliderBack,
-            }, nil, true)
+            }, {
+                WindUI.New("UICorner", { CornerRadius = UDim.new(1, 0) }),
+            })
 
             sliderData.Frame = sliderFrame
             sliderData.Back = sliderBack
@@ -1244,7 +1338,7 @@ function WindUI:CreateWindow(options)
                 Parent = tabPage,
             })
 
-            local dropdownLabel = WindUI.New("TextLabel", {
+            WindUI.New("TextLabel", {
                 Size = UDim2.new(1, 0, 0, 18),
                 BackgroundTransparency = 1,
                 Text = dropdownData.Text,
@@ -1255,85 +1349,90 @@ function WindUI:CreateWindow(options)
                 Parent = dropdownFrame,
             })
 
-            local dropdownButton = WindUI.NewRoundFrame(8, "Squircle", {
+            local dropdownButton = WindUI.New("TextButton", {
                 Size = UDim2.new(1, 0, 0, 32),
                 Position = UDim2.new(0, 0, 0, 22),
-                ImageColor3 = WindUI.Scheme.Button,
+                BackgroundColor3 = WindUI.Scheme.Button,
                 Parent = dropdownFrame,
             }, {
-                WindUI.NewRoundFrame(8, "SquircleOutline", {
-                    Size = UDim2.new(1, 0, 1, 0),
-                    ImageColor3 = WindUI.Scheme.Outline,
-                    ImageTransparency = 0.9,
+                WindUI.New("UICorner", { CornerRadius = UDim.new(0, 8) }),
+                WindUI.New("UIStroke", {
+                    Color = WindUI.Scheme.Outline,
+                    Transparency = 0.9,
                 }),
-                WindUI.New("Frame", {
-                    Size = UDim2.new(1, 0, 1, 0),
-                    BackgroundTransparency = 1,
-                }, {
-                    WindUI.New("UIPadding", {
-                        PaddingLeft = UDim.new(0, 12),
-                        PaddingRight = UDim.new(0, 12),
-                    }),
-                    WindUI.New("UIListLayout", {
-                        FillDirection = Enum.FillDirection.Horizontal,
-                        VerticalAlignment = Enum.VerticalAlignment.Center,
-                    }),
-                    WindUI.New("TextLabel", {
-                        Name = "Selected",
-                        Size = UDim2.new(1, -20, 1, 0),
-                        BackgroundTransparency = 1,
-                        Text = getDisplayText(),
-                        TextColor3 = WindUI.Scheme.Text,
-                        TextXAlignment = Enum.TextXAlignment.Left,
-                        FontFace = Font.new(WindUI.Font, Enum.FontWeight.Regular),
-                        TextSize = 13,
-                    }),
-                }),
-            }, true)
+            })
 
-            local dropdownList = WindUI.NewRoundFrame(8, "Squircle", {
+            local dropdownButtonContent = WindUI.New("Frame", {
+                Size = UDim2.new(1, 0, 1, 0),
+                BackgroundTransparency = 1,
+                Parent = dropdownButton,
+            }, {
+                WindUI.New("UIPadding", {
+                    PaddingLeft = UDim.new(0, 12),
+                    PaddingRight = UDim.new(0, 12),
+                }),
+                WindUI.New("UIListLayout", {
+                    FillDirection = Enum.FillDirection.Horizontal,
+                    VerticalAlignment = Enum.VerticalAlignment.Center,
+                }),
+            })
+
+            local selectedLabel = WindUI.New("TextLabel", {
+                Name = "Selected",
+                Size = UDim2.new(1, -20, 1, 0),
+                BackgroundTransparency = 1,
+                Text = getDisplayText(),
+                TextColor3 = WindUI.Scheme.Text,
+                TextXAlignment = Enum.TextXAlignment.Left,
+                FontFace = Font.new(WindUI.Font, Enum.FontWeight.Regular),
+                TextSize = 13,
+                Parent = dropdownButtonContent,
+            })
+
+            local dropdownList = WindUI.New("Frame", {
                 Size = UDim2.new(1, 0, 0, 0),
                 Position = UDim2.new(0, 0, 0, 58),
-                ImageColor3 = WindUI.Scheme.Dialog,
+                BackgroundColor3 = WindUI.Scheme.Dialog,
                 Visible = false,
                 ZIndex = 50,
                 ClipsDescendants = true,
                 Parent = dropdownFrame,
             }, {
-                WindUI.NewRoundFrame(8, "SquircleOutline", {
-                    Size = UDim2.new(1, 0, 1, 0),
-                    ImageColor3 = WindUI.Scheme.Outline,
-                    ImageTransparency = 0.9,
-                    ZIndex = 50,
+                WindUI.New("UICorner", { CornerRadius = UDim.new(0, 8) }),
+                WindUI.New("UIStroke", {
+                    Color = WindUI.Scheme.Outline,
+                    Transparency = 0.9,
                 }),
-                WindUI.New("ScrollingFrame", {
-                    Name = "Options",
-                    Size = UDim2.new(1, 0, 1, 0),
-                    BackgroundTransparency = 1,
-                    ScrollBarThickness = 3,
-                    ScrollBarImageColor3 = WindUI.Scheme.Button,
-                    AutomaticCanvasSize = Enum.AutomaticSize.Y,
-                    ZIndex = 51,
-                }, {
-                    WindUI.New("UIListLayout", { Padding = UDim.new(0, 2) }),
-                    WindUI.New("UIPadding", {
-                        PaddingTop = UDim.new(0, 4),
-                        PaddingLeft = UDim.new(0, 4),
-                        PaddingRight = UDim.new(0, 4),
-                        PaddingBottom = UDim.new(0, 4),
-                    }),
+            })
+
+            local optionsScroll = WindUI.New("ScrollingFrame", {
+                Name = "Options",
+                Size = UDim2.new(1, 0, 1, 0),
+                BackgroundTransparency = 1,
+                ScrollBarThickness = 3,
+                ScrollBarImageColor3 = WindUI.Scheme.Button,
+                AutomaticCanvasSize = Enum.AutomaticSize.Y,
+                ZIndex = 51,
+                Parent = dropdownList,
+            }, {
+                WindUI.New("UIListLayout", { Padding = UDim.new(0, 2) }),
+                WindUI.New("UIPadding", {
+                    PaddingTop = UDim.new(0, 4),
+                    PaddingLeft = UDim.new(0, 4),
+                    PaddingRight = UDim.new(0, 4),
+                    PaddingBottom = UDim.new(0, 4),
                 }),
             })
 
             dropdownData.Frame = dropdownFrame
             dropdownData.Button = dropdownButton
             dropdownData.List = dropdownList
-            dropdownData.SelectedLabel = dropdownButton.Frame.Selected
+            dropdownData.SelectedLabel = selectedLabel
+            dropdownData.OptionsScroll = optionsScroll
 
             local function updateList()
-                local optionsFrame = dropdownList.Options
-                for _, child in pairs(optionsFrame:GetChildren()) do
-                    if child:IsA("ImageButton") or child:IsA("ImageLabel") then
+                for _, child in pairs(optionsScroll:GetChildren()) do
+                    if child:IsA("TextButton") then
                         child:Destroy()
                     end
                 end
@@ -1341,24 +1440,27 @@ function WindUI:CreateWindow(options)
                 for _, value in ipairs(dropdownData.Values) do
                     local isSelected = dropdownData.Multi and table.find(dropdownData.Value, value) or dropdownData.Value == value
 
-                    local optionButton = WindUI.NewRoundFrame(6, "Squircle", {
+                    local optionButton = WindUI.New("TextButton", {
                         Size = UDim2.new(1, 0, 0, 26),
-                        ImageColor3 = isSelected and WindUI.Scheme.Button or WindUI.Scheme.Dialog,
-                        Parent = optionsFrame,
+                        BackgroundColor3 = isSelected and WindUI.Scheme.Button or WindUI.Scheme.Dialog,
+                        Parent = optionsScroll,
                         ZIndex = 52,
                     }, {
-                        WindUI.New("TextLabel", {
-                            Size = UDim2.new(1, -24, 1, 0),
-                            Position = UDim2.new(0, 12, 0, 0),
-                            BackgroundTransparency = 1,
-                            Text = value,
-                            TextColor3 = WindUI.Scheme.Text,
-                            TextXAlignment = Enum.TextXAlignment.Left,
-                            FontFace = Font.new(WindUI.Font, Enum.FontWeight.Regular),
-                            TextSize = 12,
-                            ZIndex = 52,
-                        }),
-                    }, true)
+                        WindUI.New("UICorner", { CornerRadius = UDim.new(0, 6) }),
+                    })
+
+                    WindUI.New("TextLabel", {
+                        Size = UDim2.new(1, -24, 1, 0),
+                        Position = UDim2.new(0, 12, 0, 0),
+                        BackgroundTransparency = 1,
+                        Text = value,
+                        TextColor3 = WindUI.Scheme.Text,
+                        TextXAlignment = Enum.TextXAlignment.Left,
+                        FontFace = Font.new(WindUI.Font, Enum.FontWeight.Regular),
+                        TextSize = 12,
+                        ZIndex = 52,
+                        Parent = optionButton,
+                    })
 
                     optionButton.MouseButton1Click:Connect(function()
                         if dropdownData.Multi then
@@ -1374,20 +1476,20 @@ function WindUI:CreateWindow(options)
                             dropdownList.Visible = false
                             dropdownFrame.Size = UDim2.new(1, 0, 0, 56)
                         end
-                        dropdownData.SelectedLabel.Text = getDisplayText()
+                        selectedLabel.Text = getDisplayText()
                         updateList()
                         WindUI.SafeCallback(dropdownData.Callback, dropdownData.Value)
                     end)
 
                     optionButton.MouseEnter:Connect(function()
                         if not (dropdownData.Multi and table.find(dropdownData.Value, value) or dropdownData.Value == value) then
-                            WindUI.Tween(optionButton, 0.1, { ImageColor3 = WindUI.Scheme.Button }):Play()
+                            WindUI.Tween(optionButton, 0.1, { BackgroundColor3 = WindUI.Scheme.Button }):Play()
                         end
                     end)
 
                     optionButton.MouseLeave:Connect(function()
                         local sel = dropdownData.Multi and table.find(dropdownData.Value, value) or dropdownData.Value == value
-                        WindUI.Tween(optionButton, 0.1, { ImageColor3 = sel and WindUI.Scheme.Button or WindUI.Scheme.Dialog }):Play()
+                        WindUI.Tween(optionButton, 0.1, { BackgroundColor3 = sel and WindUI.Scheme.Button or WindUI.Scheme.Dialog }):Play()
                     end)
                 end
 
@@ -1410,7 +1512,7 @@ function WindUI:CreateWindow(options)
 
             function dropdownData:SetValue(value)
                 dropdownData.Value = value
-                dropdownData.SelectedLabel.Text = getDisplayText()
+                selectedLabel.Text = getDisplayText()
                 updateList()
             end
             
@@ -1457,7 +1559,7 @@ function WindUI:CreateWindow(options)
                 Parent = tabPage,
             })
 
-            local inputLabel = WindUI.New("TextLabel", {
+            WindUI.New("TextLabel", {
                 Size = UDim2.new(1, 0, 0, 18),
                 BackgroundTransparency = 1,
                 Text = inputData.Text,
@@ -1468,16 +1570,16 @@ function WindUI:CreateWindow(options)
                 Parent = inputFrame,
             })
 
-            local inputBack = WindUI.NewRoundFrame(8, "Squircle", {
+            local inputBack = WindUI.New("Frame", {
                 Size = UDim2.new(1, 0, 0, 30),
                 Position = UDim2.new(0, 0, 0, 20),
-                ImageColor3 = WindUI.Scheme.Button,
+                BackgroundColor3 = WindUI.Scheme.Button,
                 Parent = inputFrame,
             }, {
-                WindUI.NewRoundFrame(8, "SquircleOutline", {
-                    Size = UDim2.new(1, 0, 1, 0),
-                    ImageColor3 = WindUI.Scheme.Outline,
-                    ImageTransparency = 0.9,
+                WindUI.New("UICorner", { CornerRadius = UDim.new(0, 8) }),
+                WindUI.New("UIStroke", {
+                    Color = WindUI.Scheme.Outline,
+                    Transparency = 0.9,
                 }),
             })
 
@@ -1528,56 +1630,34 @@ function WindUI:CreateWindow(options)
             return inputData
         end
 
-        function tabData:Paragraph(paragraphOptions)
-            paragraphOptions = paragraphOptions or {}
-            local paragraphData = {
-                Title = paragraphOptions.Title or "",
-                Desc = paragraphOptions.Desc or paragraphOptions.Content or "",
+        function tabData:Label(labelOptions)
+            labelOptions = labelOptions or {}
+            local labelData = {
+                Text = labelOptions.Title or labelOptions.Text or "Label",
             }
 
-            local paragraphFrame = WindUI.New("Frame", {
-                Name = paragraphData.Title,
-                Size = UDim2.new(1, 0, 0, 0),
-                AutomaticSize = Enum.AutomaticSize.Y,
+            local labelFrame = WindUI.New("TextLabel", {
+                Name = labelData.Text,
+                Size = UDim2.new(1, 0, 0, 20),
                 BackgroundTransparency = 1,
+                Text = labelData.Text,
+                TextColor3 = WindUI.Scheme.Text,
+                TextXAlignment = Enum.TextXAlignment.Left,
+                FontFace = Font.new(WindUI.Font, Enum.FontWeight.Regular),
+                TextSize = 14,
                 Parent = tabPage,
-            }, {
-                WindUI.New("UIListLayout", { Padding = UDim.new(0, 4) }),
             })
 
-            if paragraphData.Title ~= "" then
-                WindUI.New("TextLabel", {
-                    Size = UDim2.new(1, 0, 0, 0),
-                    AutomaticSize = Enum.AutomaticSize.Y,
-                    BackgroundTransparency = 1,
-                    Text = paragraphData.Title,
-                    TextColor3 = WindUI.Scheme.Text,
-                    TextXAlignment = Enum.TextXAlignment.Left,
-                    FontFace = Font.new(WindUI.Font, Enum.FontWeight.SemiBold),
-                    TextSize = 15,
-                    TextWrapped = true,
-                    Parent = paragraphFrame,
-                })
+            labelData.Frame = labelFrame
+
+            function labelData:SetText(text)
+                labelData.Text = text
+                labelFrame.Text = text
             end
 
-            if paragraphData.Desc ~= "" then
-                WindUI.New("TextLabel", {
-                    Size = UDim2.new(1, 0, 0, 0),
-                    AutomaticSize = Enum.AutomaticSize.Y,
-                    BackgroundTransparency = 1,
-                    Text = paragraphData.Desc,
-                    TextColor3 = WindUI.Scheme.Text,
-                    TextTransparency = 0.3,
-                    TextXAlignment = Enum.TextXAlignment.Left,
-                    FontFace = Font.new(WindUI.Font, Enum.FontWeight.Regular),
-                    TextSize = 13,
-                    TextWrapped = true,
-                    Parent = paragraphFrame,
-                })
-            end
-
-            paragraphData.Frame = paragraphFrame
-            return paragraphData
+            table.insert(tabData.Elements, labelData)
+            Labels[labelData.Text] = labelData
+            return labelData
         end
 
         function tabData:Divider()
@@ -1591,7 +1671,6 @@ function WindUI:CreateWindow(options)
         end
 
         table.insert(windowData.Tabs, tabData)
-        table.insert(WindUI.Tabs, tabData)
 
         if #windowData.Tabs == 1 then
             activateTab()
@@ -1600,42 +1679,19 @@ function WindUI:CreateWindow(options)
         return tabData
     end
 
-    windowData.AddTab = windowData.Tab
-
-    function windowData:SetVisible(visible)
-        mainFrame.Visible = visible
-        WindUI.Toggled = visible
-        if WindUI.OpenButton then
-            WindUI.OpenButton.Visible = not visible
-        end
-    end
-
-    function windowData:Toggle()
-        self:SetVisible(not mainFrame.Visible)
-    end
-
-    function windowData:Destroy()
-        WindUI:Unload()
-    end
-
-    WindUI.AddSignal(UserInputService.InputBegan, function(input, processed)
-        if processed then return end
+    UserInputService.InputBegan:Connect(function(input, gameProcessed)
+        if gameProcessed then return end
         if input.KeyCode == WindUI.ToggleKeybind then
-            windowData:Toggle()
+            WindUI.Toggled = not WindUI.Toggled
+            mainFrame.Visible = WindUI.Toggled
+            if WindUI.OpenButton then
+                WindUI.OpenButton.Visible = not WindUI.Toggled
+            end
         end
     end)
 
-    windowData.Window = windowData
+    WindUI.Window = windowData
     return windowData
-end
-
-function WindUI:Unload()
-    WindUI.DisconnectAll()
-    WindUI.Unloaded = true
-    if WindUI.ScreenGui then
-        WindUI.ScreenGui:Destroy()
-    end
-    print("[WindUI] Library unloaded")
 end
 
 return WindUI
